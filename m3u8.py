@@ -22,6 +22,20 @@ class Downloader:
     def __init__(self, pool_size, retry=3):
         self.pool = Pool(pool_size)
         self.session = self._get_http_session(pool_size, pool_size, retry)
+        self.headers = {
+            'Connection': 'keep-alive',
+            'Cache-Control': 'max-age=0',
+            'sec-ch-ua': '"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
+            'sec-ch-ua-mobile': '?0',
+            'Upgrade-Insecure-Requests': '1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-User': '?1',
+            'Sec-Fetch-Dest': 'document',
+            'Accept-Language': 'zh-CN,zh;q=0.9',
+        }
         self.retry = retry
         self.dir = ''
         self.succed = {}
@@ -48,7 +62,7 @@ class Downloader:
             return None
 
         key_url = urljoin(m3u8_url, urls[0])
-        keycontent = requests.get(key_url).text
+        keycontent = requests.get(key_url, headers=self.headers, timeout=30).text
 
         # 得到解密方法，这里要导入第三方库  pycrypto
         # 这里有一个问题，安装pycrypto成功后，导入from Crypto.Cipher import AES报错
@@ -96,7 +110,7 @@ class Downloader:
                     if not (end_time):
                         end_time = -1
                     # 提取body中'#EXTINF:1234.56,'行中的浮点数，从':'后到','前，作为ts_list对应的ts_time
-                    ts_time = [float(n[8:-1]) for n in body.split('\n')
+                    ts_time = [float(n[8:-1].split(',')[0]) for n in body.split('\n')
                                if n and n.startswith("#EXTINF:")]
                     i = 0
                     start_file = 0
@@ -154,7 +168,7 @@ class Downloader:
         #prefix = ''.join(random.sample(string.ascii_letters + string.digits, 8)) + '_'
         while retry:
             try:
-                r = self.session.get(url, timeout=20)
+                r = self.session.get(url, headers=self.headers, timeout=20)
                 if r.ok:
                     original_file_name = url.split('/')[-1].split('?')[0]
                     (file_name, ext) = os.path.splitext(original_file_name)
