@@ -17,24 +17,20 @@ import string
 from functools import partial
 import re
 from Crypto.Cipher import AES
+import socks
+import socket
 
 class Downloader:
-    def __init__(self, pool_size, retry=3):
+    def __init__(self, pool_size, retry=3, proxy_port=-1):
         self.pool = Pool(pool_size)
         self.session = self._get_http_session(pool_size, pool_size, retry)
         self.headers = {
             'Connection': 'keep-alive',
             'Cache-Control': 'max-age=0',
-            'sec-ch-ua': '"Google Chrome";v="89", "Chromium";v="89", ";Not A Brand";v="99"',
+            'sec-ch-ua': '" Not A;Brand";v="99", "Chromium";v="98", "Google Chrome";v="98"',
             'sec-ch-ua-mobile': '?0',
-            'Upgrade-Insecure-Requests': '1',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.114 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-            'Sec-Fetch-Site': 'same-origin',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-User': '?1',
-            'Sec-Fetch-Dest': 'document',
-            'Accept-Language': 'zh-CN,zh;q=0.9',
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36',
+            'Accept': '*/*'
         }
         self.retry = retry
         self.dir = ''
@@ -42,6 +38,11 @@ class Downloader:
         self.failed = []
         self.ts_total = 0
         self.ts_finish = 0
+
+        if proxy_port > 0:
+            socks.set_default_proxy(socks.SOCKS5, '127.0.0.1', proxy_port)
+            socket.socket = socks.socksocket
+
 
     def _get_http_session(self, pool_connections, pool_maxsize, max_retries):
         session = requests.Session()
@@ -62,7 +63,7 @@ class Downloader:
             return None
 
         key_url = urljoin(m3u8_url, urls[0])
-        keycontent = requests.get(key_url, headers=self.headers, timeout=30).text
+        keycontent = requests.get(key_url, headers=self.headers, timeout=30).content
 
         # 得到解密方法，这里要导入第三方库  pycrypto
         # 这里有一个问题，安装pycrypto成功后，导入from Crypto.Cipher import AES报错
@@ -77,7 +78,7 @@ class Downloader:
         if out_file == '':
             out_file = m3u8_url.split(
                 '/')[-1].split('?')[0].replace('.m3u8', '.ts')
-        r = self.session.get(m3u8_url, timeout=10)
+        r = self.session.get(m3u8_url, timeout=30)
         if r.ok:
             # python3需要使用decode()把获取到的内容bytes r.content转换为str body
             body = r.content.decode()
@@ -168,7 +169,7 @@ class Downloader:
         #prefix = ''.join(random.sample(string.ascii_letters + string.digits, 8)) + '_'
         while retry:
             try:
-                r = self.session.get(url, headers=self.headers, timeout=20)
+                r = self.session.get(url, headers=self.headers, timeout=30)
                 if r.ok:
                     original_file_name = url.split('/')[-1].split('?')[0]
                     (file_name, ext) = os.path.splitext(original_file_name)
@@ -235,9 +236,10 @@ if __name__ == '__main__':
     startfile = None  # 开始文件
     endfile = None  # 结束文件
     automerge = True  # 是否自动合并
+    proxy_port = -1
     try:
         # print (argv[3:])
-        opts, args = getopt.getopt(proset, "h:t:o:s:e:f:g:u")
+        opts, args = getopt.getopt(proset, "h:t:o:s:e:f:g:p:u")
         # print (opts)
     except getopt.GetoptError:
         print(
@@ -260,6 +262,8 @@ if __name__ == '__main__':
             startfile = int(arg)
         elif opt in ("-g", "--endfile"):
             endfile = int(arg)
+        elif opt in ("-p", "--proxy_port"):
+            proxy_port = int(arg)
         elif opt in ("-u", "--unmerge"):
             automerge = False
     print("[Downloading]:", cm3u8url)
@@ -275,6 +279,6 @@ if __name__ == '__main__':
     if endfile:
         print("[End File]:", endfile)
 
-    downloader = Downloader(cthread)
+    downloader = Downloader(cthread, retry=3, proxy_port=proxy_port)
     downloader.run(cm3u8url, cpath, outfile, starttime,
                    endtime, startfile, endfile, automerge)
