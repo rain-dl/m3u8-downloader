@@ -21,7 +21,7 @@ import socks
 import socket
 
 class Downloader:
-    def __init__(self, pool_size, retry=3, proxy_port=-1):
+    def __init__(self, pool_size, retry=3, proxy_port=-1, referer=None):
         self.pool = Pool(pool_size)
         self.session = self._get_http_session(pool_size, pool_size, retry)
         self.headers = {
@@ -32,6 +32,8 @@ class Downloader:
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/98.0.4758.80 Safari/537.36',
             'Accept': '*/*'
         }
+        if referer is not None:
+            self.headers['Referer'] = referer
         self.retry = retry
         self.dir = ''
         self.succed = {}
@@ -76,9 +78,8 @@ class Downloader:
         if self.dir and not os.path.isdir(self.dir):
             os.makedirs(self.dir)
         if out_file == '':
-            out_file = m3u8_url.split(
-                '/')[-1].split('?')[0].replace('.m3u8', '.ts')
-        r = self.session.get(m3u8_url, timeout=30)
+            out_file = m3u8_url.split('/')[-1].split('?')[0].replace('.m3u8', '.ts')
+        r = self.session.get(m3u8_url, headers=self.headers, timeout=30)
         if r.ok:
             # python3需要使用decode()把获取到的内容bytes r.content转换为str body
             body = r.content.decode()
@@ -153,8 +154,7 @@ class Downloader:
             print(r.status_code)
 
     def _download(self, ts_list, decryptor):
-        uniqueid = ''.join(random.sample(
-            string.ascii_letters + string.digits, 8))
+        uniqueid = ''.join(random.sample(string.ascii_letters + string.digits, 8))
         dowork = partial(self._worker, uniqueid, decryptor)
         self.pool.map(dowork, ts_list)
         if self.failed:
@@ -175,8 +175,8 @@ class Downloader:
                     (file_name, ext) = os.path.splitext(original_file_name)
                     file_name = file_name + '_' + uniqueid + ext
                     self.ts_finish += 1
-                    print(original_file_name+'\t|\t'+r.headers['content-length']+'B'+'\t|\t'+str(
-                        self.ts_finish)+'/'+str(self.ts_total))
+                    content_length = r.headers['content-length'] if 'content-length' in r.headers else len(r.content)
+                    print(original_file_name+'\t|\t' + str(content_length) + 'B\t|\t' + str(self.ts_finish)+'/'+str(self.ts_total))
                     with open(os.path.join(self.dir, file_name), 'wb') as f:
                         if decryptor is None:
                             f.write(r.content)
@@ -191,7 +191,7 @@ class Downloader:
 
     def _join_file(self, out_file_name=''):
         index = 0
-        outfile = ''
+        outfile = None
         while index < self.ts_total:
             file_name = self.succed.get(index, '')
             if file_name:
@@ -200,9 +200,10 @@ class Downloader:
                     if out_file_name == '':
                         outfile = open(os.path.join(self.dir, file_name.split('.')[
                                        0]+'_all.'+file_name.split('.')[-1]), 'wb')
+                    elif out_file_name == '-':
+                        outfile = os.fdopen(sys.stdout.fileno(), 'wb', closefd=False)
                     else:
-                        outfile = open(os.path.join(
-                            self.dir, out_file_name), 'wb')
+                        outfile = open(os.path.join(self.dir, out_file_name), 'wb')
                 outfile.write(infile.read())
                 infile.close()
                 os.remove(os.path.join(self.dir, file_name))
@@ -237,18 +238,19 @@ if __name__ == '__main__':
     endfile = None  # 结束文件
     automerge = True  # 是否自动合并
     proxy_port = -1
+    referer = None
     try:
         # print (argv[3:])
-        opts, args = getopt.getopt(proset, "h:t:o:s:e:f:g:p:u")
+        opts, args = getopt.getopt(proset, "h:t:o:s:e:f:g:p:r:u")
         # print (opts)
     except getopt.GetoptError:
         print(
-            '高级配置参数: -o <out_file> -s <start_time> -e <end_time> -f <start_file> -g <end_file> [-u]')
+            '高级配置参数: -o <out_file> -s <start_time> -e <end_time> -f <start_file> -g <end_file> -p <proxy_port> -r <referer> [-u]')
         sys.exit(2)
     for opt, arg in opts:
         if opt == '-h':
             print(
-                'm3u8.py <m3u8_url> <download_path> -o <out_file> -s <start_time> -e <end_time> -f <start_file> -g <end_file> [-u]')
+                'm3u8.py <m3u8_url> <download_path> -o <out_file> -s <start_time> -e <end_time> -f <start_file> -g <end_file> -p <proxy_port> -r <referer> [-u]')
             sys.exit()
         elif opt in ("-t", "--thread"):
             cthread = arg
@@ -264,6 +266,8 @@ if __name__ == '__main__':
             endfile = int(arg)
         elif opt in ("-p", "--proxy_port"):
             proxy_port = int(arg)
+        elif opt in ("-r", "--referer"):
+            referer = arg
         elif opt in ("-u", "--unmerge"):
             automerge = False
     print("[Downloading]:", cm3u8url)
@@ -279,6 +283,5 @@ if __name__ == '__main__':
     if endfile:
         print("[End File]:", endfile)
 
-    downloader = Downloader(cthread, retry=3, proxy_port=proxy_port)
-    downloader.run(cm3u8url, cpath, outfile, starttime,
-                   endtime, startfile, endfile, automerge)
+    downloader = Downloader(cthread, retry=3, proxy_port=proxy_port, referer=referer)
+    downloader.run(cm3u8url, cpath, outfile, starttime, endtime, startfile, endfile, automerge)
